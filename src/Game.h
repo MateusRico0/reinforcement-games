@@ -2,11 +2,15 @@
 #include <SFML/Graphics.hpp>
 #include <vector>
 #include <optional>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 #include "Entities.h"
 
 class Game {
 public:
     Game();
+    ~Game();
     void run();
 
 private:
@@ -17,8 +21,6 @@ private:
     void spawnAsteroid();
     void checkCollisions();
     void resetGame();
-    void loadHighScore();
-    void saveHighScore();
     void updateUIText();
 
     sf::RenderWindow m_window;
@@ -29,18 +31,15 @@ private:
 
     sf::Font m_font;
     sf::Text m_scoreText;
-    sf::Text m_highScoreText;
+    
+    int m_sockfd;
+    struct sockaddr_in m_servaddr;
+    float m_stepReward;
+    bool m_isDone;
 
     int m_score;
-    int m_highScore;
-    
     float m_fireCooldown;
     float m_asteroidSpawnTimer;
-    float m_totalSessionTime;
-    
-    float m_currentSpawnRate;
-    float m_speedMultiplier;
-    float m_hardAsteroidChance;
     
     static constexpr unsigned int WINDOW_WIDTH = 800;
     static constexpr unsigned int WINDOW_HEIGHT = 600;

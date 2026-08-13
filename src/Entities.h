@@ -27,6 +27,7 @@ struct Asteroid {
 
     Asteroid(float x, float y, float speed, bool isHard) {
         shape.setRadius(20.f);
+        shape.setOrigin({20.f, 20.f});
         shape.setPosition({x, y});
         velocity = {0.f, speed};
 
