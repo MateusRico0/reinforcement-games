@@ -19,6 +19,7 @@ private:
     void render();
     
     void spawnAsteroid();
+    void spawnUFO();
     void checkCollisions();
     void resetGame();
     void updateUIText();
@@ -28,18 +29,29 @@ private:
     
     std::vector<Bullet> m_bullets;
     std::vector<Asteroid> m_asteroids;
+    std::vector<UFO> m_UFO;
 
     sf::Font m_font;
     sf::Text m_scoreText;
+    sf::Text m_recordscoreText;
     
+    bool m_aiMode;
     int m_sockfd;
     struct sockaddr_in m_servaddr;
     float m_stepReward;
     bool m_isDone;
 
     int m_score;
+    int m_recordscore = 0;
+
     float m_fireCooldown;
     float m_asteroidSpawnTimer;
+    float m_UFOSpawnTimer;
+
+    float m_totalSessionTime;
+    float m_currentSpawnRate = 0.5f;
+    float m_speedMultiplier;
+    float m_hardAsteroidChance;
     
     static constexpr unsigned int WINDOW_WIDTH = 800;
     static constexpr unsigned int WINDOW_HEIGHT = 600;
