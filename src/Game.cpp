@@ -8,10 +8,34 @@ Game::Game()
     : m_window(sf::VideoMode({WINDOW_WIDTH, WINDOW_HEIGHT}), "C++ AI Asteroid Shooter"),
       m_player(WINDOW_WIDTH / 2.f, WINDOW_HEIGHT - 50.f),
       m_scoreText(m_font),
+      m_recordscoreText(m_font),
       m_stepReward(0.0f),
       m_isDone(false)
 {
-    m_window.setFramerateLimit(0);
+    std::cout << "Select Game Mode:\n";
+    std::cout << "1. Human Play\n";
+    std::cout << "2. AI Reinforcement\n";
+    std::cout << "Enter choice): ";
+    
+    int choice;
+    std::cin >> choice;
+    m_aiMode = (choice == 2);
+
+    if (m_aiMode) {
+        std::cout << "Starting AI Training Mode on port 5005...\n";
+        m_window.setFramerateLimit(0);
+        
+        m_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+        memset(&m_servaddr, 0, sizeof(m_servaddr));
+        m_servaddr.sin_family = AF_INET;
+        m_servaddr.sin_port = htons(5005);
+        inet_pton(AF_INET, "127.0.0.1", &m_servaddr.sin_addr);
+    } else {
+        std::cout << "Starting Human Mode...\n";
+        m_window.setFramerateLimit(60);
+    }
+
+
     m_window.requestFocus(); 
 
     if (!m_font.openFromFile("/System/Library/Fonts/Helvetica.ttc")) {
@@ -22,28 +46,32 @@ Game::Game()
     m_scoreText.setFillColor(sf::Color::White);
     m_scoreText.setPosition({10.f, 10.f});
 
-    m_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    memset(&m_servaddr, 0, sizeof(m_servaddr));
-    m_servaddr.sin_family = AF_INET;
-    m_servaddr.sin_port = htons(5005);
-    inet_pton(AF_INET, "127.0.0.1", &m_servaddr.sin_addr);
+    
+    m_recordscoreText.setCharacterSize(20);
+    m_recordscoreText.setFillColor(sf::Color::Blue);
+    m_recordscoreText.setPosition({10.f, 40.f});
 
     resetGame();
 }
 
 Game::~Game() {
-    close(m_sockfd); 
+    if (m_aiMode){
+        close(m_sockfd); 
+    }
 }
 
 void Game::resetGame() {
     m_asteroids.clear();
+    m_UFO.clear();
     m_bullets.clear();
     m_player.shape.setPosition({WINDOW_WIDTH / 2.f, WINDOW_HEIGHT - 50.f});
     
     m_score = 0;
     m_fireCooldown = 0.f;
     m_asteroidSpawnTimer = 0.f;
+    m_UFOSpawnTimer = 0.f;
     m_stepReward = 0.0f;
+    m_totalSessionTime = 0.f;
     m_isDone = false;
 
     updateUIText();
@@ -51,6 +79,7 @@ void Game::resetGame() {
 
 void Game::updateUIText() {
     m_scoreText.setString("Score: " + std::to_string(m_score));
+    m_recordscoreText.setString("Record: " + std::to_string(m_recordscore));
 }
 
 void Game::run() {
@@ -58,91 +87,124 @@ void Game::run() {
     while (m_window.isOpen()) {
         sf::Time deltaTime = clock.restart();
         processEvents();
-        update(deltaTime);
+        if (m_aiMode){
+            update(sf::seconds(1.0f / 60.0f));
+        } else {
+            update(deltaTime);
+        }
         render();
     }
 }
 
 void Game::processEvents() {
     while (const std::optional<sf::Event> event = m_window.pollEvent()) {
-        if (event->is<sf::Event::Closed>()) {
+        if (event->is < sf::Event::Closed>()) {
             m_window.close();
         }
     }
 }
 
 void Game::update(sf::Time deltaTime) {
-    float dt = 0.016f;
+    float dt = deltaTime.asSeconds();
+    m_totalSessionTime += dt;
 
-    float playerX = m_player.shape.getPosition().x;
-    
-    float astX = playerX;
-    float astY = 0.0f;
-    int astHP = 0;
-    
-    if (!m_asteroids.empty()) {
-        auto closest = m_asteroids.begin();
-        for (auto it = m_asteroids.begin(); it != m_asteroids.end(); ++it) {
-            if (it->shape.getPosition().y > closest->shape.getPosition().y) {
-                closest = it;
-            }
-        }
-        astX = closest->shape.getPosition().x;
-        astY = closest->shape.getPosition().y;
-        astHP = closest->hp;
-    }
-    
-    int bulletActive = m_bullets.empty() ? 0 : 1;
+    int difficultyLevel = static_cast<int>(m_totalSessionTime / 10.f);
 
-    // Create the message string: "PlayerX,AstX,AstY,AstHP,BulletActive,Reward,Done"
-    std::ostringstream stateStream;
-    stateStream << playerX << "," << astX << "," << astY << "," 
-                << astHP << "," << bulletActive << "," 
-                << m_stepReward << "," << (m_isDone ? 1 : 0);
-    std::string stateStr = stateStream.str();
-
-    m_stepReward = 0.0f;
-    m_isDone = false;
-
-    sendto(m_sockfd, stateStr.c_str(), stateStr.length(), 0, 
-           (const struct sockaddr *) &m_servaddr, sizeof(m_servaddr));
-
-    char buffer[1024];
-    socklen_t len = sizeof(m_servaddr);
-    int n = recvfrom(m_sockfd, (char *)buffer, 1024, 0, 
-                     (struct sockaddr *) &m_servaddr, &len);
-    buffer[n] = '\0';
-    
-    int action = std::stoi(buffer); 
+    m_currentSpawnRate = std::max(0.1f, 0.5f - (difficultyLevel * 0.05f));
+    m_speedMultiplier = 1.0f + (difficultyLevel * 0.2f);
+    m_hardAsteroidChance = std::min(0.6f, difficultyLevel * 0.15f);
 
     sf::Vector2f movement(0.f, 0.f);
-    if (action == 1) movement.x -= m_player.speed;
-    if (action == 2) movement.x += m_player.speed;
+    bool shouldShoot = false;
+
+    if (m_aiMode) {
+        float playerX = m_player.shape.getPosition().x;
+        float astX = playerX;
+        float astY = 0.0f;
+        int astHP = 0;
+        
+        if (!m_asteroids.empty()) {
+            auto closest = m_asteroids.begin();
+            for (auto it = m_asteroids.begin(); it != m_asteroids.end(); ++it) {
+                if (it->shape.getPosition().y > closest->shape.getPosition().y) {
+                    closest = it;
+                }
+            }
+            astX = closest->shape.getPosition().x;
+            astY = closest->shape.getPosition().y;
+            astHP = closest->hp;
+        }
+        
+        int bulletActive = m_bullets.empty() ? 0 : 1;
+
+        std::ostringstream stateStream;
+        stateStream << playerX << "," << astX << "," << astY << "," 
+                    << astHP << "," << bulletActive << "," 
+                    << m_stepReward << "," << (m_isDone ? 1 : 0);
+        std::string stateStr = stateStream.str();
+
+        m_stepReward = 0.0f;
+        
+        sendto(m_sockfd, stateStr.c_str(), stateStr.length(), 0, 
+               (const struct sockaddr *) &m_servaddr, sizeof(m_servaddr));
+
+        char buffer[1024];
+        socklen_t len = sizeof(m_servaddr);
+        int n = recvfrom(m_sockfd, (char *)buffer, 1024, 0, 
+                         (struct sockaddr *) &m_servaddr, &len);
+        buffer[n] = '\0';
+        
+        int action = std::stoi(buffer); 
+        
+        if (action == 1) movement.x -= m_player.speed;
+        if (action == 2) movement.x += m_player.speed;
+        if (action == 3) shouldShoot = true;
+
+    } else {
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up))
+            movement.y -= m_player.speed;
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Down))
+            movement.y += m_player.speed;
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Left))
+            movement.x -= m_player.speed;
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Right))
+            movement.x += m_player.speed;
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Space)) {
+            shouldShoot = true;
+        }
+    }
 
     m_player.shape.move(movement * dt);
 
     sf::Vector2f pos = m_player.shape.getPosition();
     if (pos.x < 15.f) pos.x = 15.f;
     if (pos.x > WINDOW_WIDTH - 15.f) pos.x = WINDOW_WIDTH - 15.f;
+    if (pos.y < 20.f) pos.y = 20.f;
+    if (pos.y > WINDOW_HEIGHT - 15.f) pos.y = WINDOW_HEIGHT - 15.f;
     m_player.shape.setPosition(pos);
 
     m_fireCooldown -= dt;
-    if (action == 3 && m_fireCooldown <= 0.f) { 
-        m_bullets.emplace_back(pos.x - 2.f, pos.y - 20.f);
+    if (shouldShoot && m_fireCooldown <= 0.f) {
+        m_bullets.emplace_back(m_player.shape.getPosition().x - 2.f, m_player.shape.getPosition().y - 20.f);
         m_fireCooldown = 0.2f;
     }
 
     m_asteroidSpawnTimer -= dt;
     if (m_asteroidSpawnTimer <= 0.f) {
         spawnAsteroid();
-        m_asteroidSpawnTimer = 0.5f; 
+        m_asteroidSpawnTimer = m_currentSpawnRate;
+    }
+
+    m_UFOSpawnTimer -= dt;
+    if (m_UFOSpawnTimer <= 0.f) {
+        spawnUFO();
+        m_UFOSpawnTimer = m_currentSpawnRate;
     }
 
     for (auto& bullet : m_bullets) bullet.update(dt);
+    for (auto& asteroid : m_asteroids) asteroid.update(dt, WINDOW_HEIGHT);
+    for (auto& UFO : m_UFO) UFO.update(dt, WINDOW_WIDTH);
     
-    for (auto& asteroid : m_asteroids) {
-        asteroid.update(dt, WINDOW_HEIGHT);
-    }
 
     checkCollisions();
 
@@ -150,6 +212,8 @@ void Game::update(sf::Time deltaTime) {
         [](const Bullet& b) { return !b.active; }), m_bullets.end());
     m_asteroids.erase(std::remove_if(m_asteroids.begin(), m_asteroids.end(),
         [](const Asteroid& a) { return !a.active; }), m_asteroids.end());
+    m_UFO.erase(std::remove_if(m_UFO.begin(), m_UFO.end(),
+        [](const UFO& c) { return !c.active; }), m_UFO.end());
 }
 
 void Game::spawnAsteroid() {
@@ -158,7 +222,43 @@ void Game::spawnAsteroid() {
     std::uniform_real_distribution<float> xDist(20.f, WINDOW_WIDTH - 20.f);
     std::uniform_real_distribution<float> speedDist(150.f, 250.f);
     
-    m_asteroids.emplace_back(xDist(gen), -40.f, speedDist(gen), false); 
+    static float lastSpawnX = -100.f; 
+    float newX;
+    do {
+        newX = xDist(gen);
+    } while (std::abs(newX - lastSpawnX) < 50.f);
+    lastSpawnX = newX;
+
+    float baseSpeed = speedDist(gen);
+    float finalSpeed = baseSpeed * m_speedMultiplier;
+
+    std::uniform_real_distribution<float> chanceDist(0.0f, 1.0f);
+    bool isHardAsteroid = false;
+    
+    if (chanceDist(gen) < m_hardAsteroidChance) {
+        isHardAsteroid = true;
+    }
+
+    m_asteroids.emplace_back(newX, -40.f, finalSpeed, isHardAsteroid); 
+}
+
+void Game::spawnUFO() {
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> yDist(20.f, WINDOW_HEIGHT - 20.f);
+    std::uniform_real_distribution<float> speedDist(150.f, 250.f);
+    
+    static float lastSpawnY = -100.f; 
+    float newY;
+    do {
+        newY = yDist(gen);
+    } while (std::abs(newY - lastSpawnY) < 50.f);
+    lastSpawnY = newY;
+
+    float baseSpeed = speedDist(gen);
+    float finalSpeed = baseSpeed * m_speedMultiplier;
+
+    m_UFO.emplace_back(-40.f, newY, finalSpeed); 
 }
 
 void Game::checkCollisions() {
@@ -177,7 +277,11 @@ void Game::checkCollisions() {
                 if (asteroid.hp <= 0) {
                     asteroid.active = false;
                     m_score++;
+                    if (m_score > m_recordscore) {
+                        m_recordscore = m_score;
+                    }
                     m_stepReward += 5.0f; // Big reward for a destroy
+
                     updateUIText();
                 }
                 break; 
@@ -191,16 +295,29 @@ void Game::checkCollisions() {
             break; 
         }
     }
+
+    for (auto& UFO : m_UFO) {
+        if (!UFO.active) continue;
+
+        if (UFO.shape.getGlobalBounds().findIntersection(m_player.shape.getGlobalBounds())) {
+            m_stepReward -= 50.0f;
+            m_isDone = true;       
+            resetGame(); 
+            break; 
+        }
+    }
 }
 
-void Game::render() {
-    m_window.clear(sf::Color(10, 10, 25));
-
+ void Game::render() {
+     m_window.clear(sf::Color(10, 10, 25));
+ 
     for (const auto& asteroid : m_asteroids) m_window.draw(asteroid.shape);
+    for (const auto& UFO : m_UFO) m_window.draw(UFO.shape);
     for (const auto& bullet : m_bullets) m_window.draw(bullet.shape);
     
     m_window.draw(m_player.shape);
     m_window.draw(m_scoreText);
+    m_window.draw(m_recordscoreText);
     
     m_window.display();
 }
