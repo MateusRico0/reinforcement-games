@@ -20,8 +20,8 @@ class QNetwork(nn.Module):
 
 class Agent:
     def __init__(self):
-        self.state_size = 5 # PlayerX, AstX, AstY, AstHP, BulletActive
-        self.action_size = 4 # 0: None, 1: Left, 2: Right, 3: Shoot
+        self.state_size = 8 # PlayerX, PlayerY, AstX, AstY, AstHP, BulletActive, ufoX, ufoY
+        self.action_size = 6 # 0: None, 1: Left, 2: Right, 3: Up, 4: Down, 5: Shoot
         
         self.model = QNetwork(self.state_size, self.action_size)
         self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
@@ -79,12 +79,12 @@ def run_training_loop():
         data, addr = sock.recvfrom(1024) 
         message = data.decode("utf-8")
         
-        # Expected "PlayerX,AstX,AstY,AstHP,BulletActive,Reward,Done" from C++
+        # Expected "PlayerX,PlayerY,AstX,AstY,AstHP,BulletActive,ufoX,ufoY,Reward,Done" from C++
         try:
             values = list(map(float, message.split(',')))
-            current_state = values[0:5]
-            reward = values[5]
-            done = bool(values[6])
+            current_state = values[0:8]
+            reward = values[8]
+            done = bool(values[9])
             
             if last_state is not None:
                 agent.train_step(last_state, last_action, reward, current_state, done)

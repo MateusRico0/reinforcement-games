@@ -119,9 +119,15 @@ void Game::update(sf::Time deltaTime) {
 
     if (m_aiMode) {
         float playerX = m_player.shape.getPosition().x;
+        float playerY = m_player.shape.getPosition().y;
+
         float astX = playerX;
         float astY = 0.0f;
         int astHP = 0;
+
+        float ufoX = 0.0f;
+        float ufoY = playerY;
+        
         
         if (!m_asteroids.empty()) {
             auto closest = m_asteroids.begin();
@@ -134,13 +140,27 @@ void Game::update(sf::Time deltaTime) {
             astY = closest->shape.getPosition().y;
             astHP = closest->hp;
         }
+
+        if (!m_UFO.empty()) {
+            auto closest = m_UFO.begin();
+            for (auto it = m_UFO.begin(); it != m_UFO.end(); ++it) {
+                if (it->shape.getPosition().y > closest->shape.getPosition().y) {
+                    closest = it;
+                }
+            }
+            ufoX = closest->shape.getPosition().x;
+            ufoY = closest->shape.getPosition().y;
+        }
         
         int bulletActive = m_bullets.empty() ? 0 : 1;
 
         std::ostringstream stateStream;
-        stateStream << playerX << "," << astX << "," << astY << "," 
+        stateStream << playerX << "," << playerY << "," 
+                    << astX << "," << astY << "," 
                     << astHP << "," << bulletActive << "," 
+                    << ufoX << "," << ufoY << ","
                     << m_stepReward << "," << (m_isDone ? 1 : 0);
+
         std::string stateStr = stateStream.str();
 
         m_stepReward = 0.0f;
@@ -158,7 +178,9 @@ void Game::update(sf::Time deltaTime) {
         
         if (action == 1) movement.x -= m_player.speed;
         if (action == 2) movement.x += m_player.speed;
-        if (action == 3) shouldShoot = true;
+        if (action == 3) movement.y -= m_player.speed;
+        if (action == 4) movement.y += m_player.speed;
+        if (action == 5) shouldShoot = true;
 
     } else {
         if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up))
