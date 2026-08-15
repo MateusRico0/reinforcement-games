@@ -37,6 +37,7 @@ To watch the reinforcement learning model play the game, you will need to run th
 source .venv/bin/activate
 python3.11 ai_brain.py
 ```
+
 ### Terminal 2: Start the Game (from the build folder)
 ```Bash
 ./AsteroidShooter
