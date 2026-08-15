@@ -88,7 +88,7 @@ void Game::run() {
         sf::Time deltaTime = clock.restart();
         processEvents();
         if (m_aiMode){
-            update(sf::seconds(1.0f / 60.0f));
+            update(sf::seconds(1.0f / 120.0f));
         } else {
             update(deltaTime);
         }
@@ -118,29 +118,36 @@ void Game::update(sf::Time deltaTime) {
     bool shouldShoot = false;
 
     if (m_aiMode) {
-        float playerX = m_player.shape.getPosition().x;
-        float astX = playerX;
-        float astY = 0.0f;
-        int astHP = 0;
-        
-        if (!m_asteroids.empty()) {
-            auto closest = m_asteroids.begin();
-            for (auto it = m_asteroids.begin(); it != m_asteroids.end(); ++it) {
-                if (it->shape.getPosition().y > closest->shape.getPosition().y) {
-                    closest = it;
-                }
+        const int GRID_W = 64;
+        const int GRID_H = 64;
+        std::vector<int> grid(GRID_W * GRID_H, 0); 
+
+        auto mapToGrid = [&](float x, float y, int entityType) {
+            int gx = static_cast<int>((x / WINDOW_WIDTH) * GRID_W);
+            int gy = static_cast<int>((y / WINDOW_HEIGHT) * GRID_H);
+            
+            if (gx >= 0 && gx < GRID_W && gy >= 0 && gy < GRID_H) {
+                grid[gy * GRID_W + gx] = entityType; 
             }
-            astX = closest->shape.getPosition().x;
-            astY = closest->shape.getPosition().y;
-            astHP = closest->hp;
-        }
+        };
+
+        mapToGrid(m_player.shape.getPosition().x, m_player.shape.getPosition().y, 1);
         
-        int bulletActive = m_bullets.empty() ? 0 : 1;
+        for (const auto& ast : m_asteroids) {
+            mapToGrid(ast.shape.getPosition().x, ast.shape.getPosition().y, 2);
+        }
+        for (const auto& ufo : m_UFO) {
+            mapToGrid(ufo.shape.getPosition().x, ufo.shape.getPosition().y, 3);
+        }
+        for (const auto& bullet : m_bullets) {
+            mapToGrid(bullet.shape.getPosition().x, bullet.shape.getPosition().y, 4);
+        }
 
         std::ostringstream stateStream;
-        stateStream << playerX << "," << astX << "," << astY << "," 
-                    << astHP << "," << bulletActive << "," 
-                    << m_stepReward << "," << (m_isDone ? 1 : 0);
+        for (int i = 0; i < grid.size(); ++i) {
+            stateStream << grid[i]; 
+        }
+        stateStream << "," << m_stepReward << "," << (m_isDone ? 1 : 0);
         std::string stateStr = stateStream.str();
 
         m_stepReward = 0.0f;
@@ -148,9 +155,9 @@ void Game::update(sf::Time deltaTime) {
         sendto(m_sockfd, stateStr.c_str(), stateStr.length(), 0, 
                (const struct sockaddr *) &m_servaddr, sizeof(m_servaddr));
 
-        char buffer[1024];
+        char buffer[2048];
         socklen_t len = sizeof(m_servaddr);
-        int n = recvfrom(m_sockfd, (char *)buffer, 1024, 0, 
+        int n = recvfrom(m_sockfd, (char *)buffer, 2048, 0, 
                          (struct sockaddr *) &m_servaddr, &len);
         buffer[n] = '\0';
         
@@ -158,7 +165,9 @@ void Game::update(sf::Time deltaTime) {
         
         if (action == 1) movement.x -= m_player.speed;
         if (action == 2) movement.x += m_player.speed;
-        if (action == 3) shouldShoot = true;
+        if (action == 3) movement.y -= m_player.speed;
+        if (action == 4) movement.y += m_player.speed;
+        if (action == 5) shouldShoot = true;
 
     } else {
         if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W) || sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Up))
@@ -272,7 +281,7 @@ void Game::checkCollisions() {
                 bullet.active = false;
                 asteroid.hp--;
                 
-                m_stepReward += 0.5f; // Reward for landing a hit
+                m_stepReward += 5.0f; // Reward for landing a hit
 
                 if (asteroid.hp <= 0) {
                     asteroid.active = false;
@@ -280,7 +289,7 @@ void Game::checkCollisions() {
                     if (m_score > m_recordscore) {
                         m_recordscore = m_score;
                     }
-                    m_stepReward += 5.0f; // Big reward for a destroy
+                    m_stepReward += 50.0f; // Big reward for a destroy
 
                     updateUIText();
                 }
@@ -289,7 +298,7 @@ void Game::checkCollisions() {
         }
 
         if (asteroid.shape.getGlobalBounds().findIntersection(m_player.shape.getGlobalBounds())) {
-            m_stepReward -= 50.0f; // penalty for dying
+            m_stepReward -= 500.0f; // penalty for dying
             m_isDone = true;       
             resetGame(); 
             break; 
@@ -300,7 +309,7 @@ void Game::checkCollisions() {
         if (!UFO.active) continue;
 
         if (UFO.shape.getGlobalBounds().findIntersection(m_player.shape.getGlobalBounds())) {
-            m_stepReward -= 50.0f;
+            m_stepReward -= 500.0f;
             m_isDone = true;       
             resetGame(); 
             break; 
