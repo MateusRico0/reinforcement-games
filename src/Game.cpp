@@ -110,9 +110,9 @@ void Game::update(sf::Time deltaTime) {
 
     int difficultyLevel = static_cast<int>(m_totalSessionTime / 10.f);
 
-    m_currentSpawnRate = std::max(0.1f, 0.5f - (difficultyLevel * 0.05f));
-    m_speedMultiplier = 1.0f + (difficultyLevel * 0.2f);
-    m_hardAsteroidChance = std::min(0.6f, difficultyLevel * 0.15f);
+    m_currentSpawnRate = 1.0f;//std::max(0.1f, 0.5f - (difficultyLevel * 0.05f));
+    m_speedMultiplier = 1.0f; //1.0f + (difficultyLevel * 0.2f);
+    m_hardAsteroidChance = 0.1f; //std::min(0.6f, difficultyLevel * 0.15f);
 
     sf::Vector2f movement(0.f, 0.f);
     bool shouldShoot = false;
@@ -150,17 +150,17 @@ void Game::update(sf::Time deltaTime) {
         stateStream << "," << m_stepReward << "," << (m_isDone ? 1 : 0);
         std::string stateStr = stateStream.str();
 
-        m_stepReward = 0.0f;
-        
         sendto(m_sockfd, stateStr.c_str(), stateStr.length(), 0, 
                (const struct sockaddr *) &m_servaddr, sizeof(m_servaddr));
 
-        char buffer[2048];
+        char buffer[4096];
         socklen_t len = sizeof(m_servaddr);
-        int n = recvfrom(m_sockfd, (char *)buffer, 2048, 0, 
+        int n = recvfrom(m_sockfd, (char *)buffer, 4096, 0, 
                          (struct sockaddr *) &m_servaddr, &len);
         buffer[n] = '\0';
         
+        m_stepReward = 0.0f;
+
         int action = std::stoi(buffer); 
         
         if (action == 1) movement.x -= m_player.speed;
@@ -183,6 +183,11 @@ void Game::update(sf::Time deltaTime) {
         }
     }
 
+    if (m_isDone){
+        resetGame();
+        return;
+    }
+    
     m_player.shape.move(movement * dt);
 
     sf::Vector2f pos = m_player.shape.getPosition();
@@ -289,7 +294,7 @@ void Game::checkCollisions() {
                     if (m_score > m_recordscore) {
                         m_recordscore = m_score;
                     }
-                    m_stepReward += 50.0f; // Big reward for a destroy
+                    m_stepReward += 10.0f; // Big reward for a destroy
 
                     updateUIText();
                 }
@@ -300,7 +305,6 @@ void Game::checkCollisions() {
         if (asteroid.shape.getGlobalBounds().findIntersection(m_player.shape.getGlobalBounds())) {
             m_stepReward -= 500.0f; // penalty for dying
             m_isDone = true;       
-            resetGame(); 
             break; 
         }
     }
@@ -311,7 +315,6 @@ void Game::checkCollisions() {
         if (UFO.shape.getGlobalBounds().findIntersection(m_player.shape.getGlobalBounds())) {
             m_stepReward -= 500.0f;
             m_isDone = true;       
-            resetGame(); 
             break; 
         }
     }
