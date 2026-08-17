@@ -110,9 +110,9 @@ void Game::update(sf::Time deltaTime) {
 
     int difficultyLevel = static_cast<int>(m_totalSessionTime / 10.f);
 
-    m_currentSpawnRate = std::max(0.1f, 0.5f - (difficultyLevel * 0.05f));
-    m_speedMultiplier = 1.0f + (difficultyLevel * 0.2f);
-    m_hardAsteroidChance = std::min(0.6f, difficultyLevel * 0.15f);
+    m_currentSpawnRate = 1.0f;//std::max(0.1f, 0.5f - (difficultyLevel * 0.05f));
+    m_speedMultiplier = 1.0f; //1.0f + (difficultyLevel * 0.2f);
+    m_hardAsteroidChance = 0.1f; //std::min(0.6f, difficultyLevel * 0.15f);
 
     sf::Vector2f movement(0.f, 0.f);
     bool shouldShoot = false;
@@ -171,12 +171,9 @@ void Game::update(sf::Time deltaTime) {
         int n = recvfrom(m_sockfd, (char *)buffer, 1024, 0, 
                          (struct sockaddr *) &m_servaddr, &len);
         buffer[n] = '\0';
-
-        if (m_isDone){
-            resetGame();
-            return;
-        }
         
+        m_stepReward = 0.0f;
+
         int action = std::stoi(buffer); 
         
         if (action == 1) movement.x -= m_player.speed;
@@ -199,6 +196,11 @@ void Game::update(sf::Time deltaTime) {
         }
     }
 
+    if (m_isDone){
+        resetGame();
+        return;
+    }
+    
     m_player.shape.move(movement * dt);
 
     sf::Vector2f pos = m_player.shape.getPosition();
@@ -314,7 +316,7 @@ void Game::checkCollisions() {
         }
 
         if (asteroid.shape.getGlobalBounds().findIntersection(m_player.shape.getGlobalBounds())) {
-            m_stepReward -= 50.0f; // penalty for dying
+            m_stepReward -= 500.0f; // penalty for dying
             m_isDone = true;       
             break; 
         }
@@ -324,7 +326,7 @@ void Game::checkCollisions() {
         if (!UFO.active) continue;
 
         if (UFO.shape.getGlobalBounds().findIntersection(m_player.shape.getGlobalBounds())) {
-            m_stepReward -= 50.0f;
+            m_stepReward -= 500.0f;
             m_isDone = true;       
             break; 
         }

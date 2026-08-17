@@ -18,11 +18,11 @@ logger = logging.getLogger(__name__)
 class AgentConfig:
     state_size: int = 8
     action_size: int = 6
-    hidden_size: int = 64
-    learning_rate: float = 0.001
-    gamma: float = 0.95
+    hidden_size: int = 512
+    learning_rate: float = 5e-3
+    gamma: float = 0.90
     epsilon_start: float = 1.0
-    epsilon_min: float = 0.1
+    epsilon_min: float = 0.05
     epsilon_decay: float = 0.995
 
 @dataclass
@@ -44,14 +44,20 @@ class QNetwork(nn.Module):
     def __init__(self, input_size: int, hidden_size: int, output_size: int):
         super().__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, hidden_size)
-        self.fc3 = nn.Linear(hidden_size, output_size)
-        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(hidden_size, hidden_size // 2)
+        self.fc3 = nn.Linear(hidden_size // 2, hidden_size // 4)
+        self.fc4 = nn.Linear(hidden_size // 4, hidden_size // 8)
+        self.fc5 = nn.Linear(hidden_size // 8, hidden_size // 16)
+        self.fc6 = nn.Linear(hidden_size// 16, output_size)
+        self.Lrelu = nn.LeakyReLU()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.relu(self.fc1(x))
-        x = self.relu(self.fc2(x))
-        return self.fc3(x)
+        x = self.Lrelu(self.fc1(x))
+        x = self.Lrelu(self.fc2(x))
+        x = self.Lrelu(self.fc3(x))
+        x = self.Lrelu(self.fc4(x))
+        x = self.Lrelu(self.fc5(x))
+        return self.fc6(x)
 
 class Agent:
     def __init__(self, config: AgentConfig):
@@ -94,9 +100,6 @@ class Agent:
         loss = self.criterion(q_values, target_q_values)
         loss.backward()
         self.optimizer.step()
-
-        if self.epsilon > self.config.epsilon_min:
-            self.epsilon *= self.config.epsilon_decay
 
 
 def parse_game_state(message: str) -> Tuple[List[float], float, bool]:
@@ -145,6 +148,9 @@ def run_training_loop(agent_config: AgentConfig, net_config: NetworkConfig) -> N
                 if done:
                     last_state = None
                     logger.info(f"Game Over. Epsilon: {agent.epsilon:.3f}")
+
+                    if agent.epsilon > agent.config.epsilon_min:
+                        agent.epsilon *= agent.config.epsilon_decay
                     
             except ValueError as ve:
                 logger.error(f"Data parsing error: {ve}")
