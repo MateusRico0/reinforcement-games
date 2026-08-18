@@ -29,7 +29,7 @@ class AgentConfig:
 class NetworkConfig:
     host: str = "127.0.0.1"
     port: int = 5005
-    buffer_size: int = 4096
+    buffer_size: int = 8192
 
 class Action(IntEnum):
     NONE = 0
@@ -43,23 +43,24 @@ class Action(IntEnum):
 class CNNQNetwork(nn.Module):
     def __init__(self, input_size: int, hidden_size: int, output_size: int):
         super(CNNQNetwork, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=8, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(in_channels=8, out_channels=16, kernel_size=3, stride=1, padding=1)
-
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=8, kernel_size=1, stride=1, padding=0) # 64 x 64
+        self.maxpool1 = nn.MaxPool2d(kernel_size=4) # 16 X 16
+        self.conv2 = nn.Conv2d(in_channels=8, out_channels=16, kernel_size=7, stride=1, padding=0) # 10 x 10
         
         self.relu = nn.ReLU()
-        
-        self.fc1 = nn.Linear(16 * (input_size**2), 1024)
-        self.fc2 = nn.Linear(1024, 128)
-        self.fc3 = nn.Linear(128, output_size)
+        self.fc1 = nn.Linear(16 * 10 * 10, 512)
+        self.fc5 = nn.Linear(512, 128)
+        self.fc6 = nn.Linear(128, output_size)
 
     def forward(self, x):
         x = self.relu(self.conv1(x))
+        x = self.maxpool1(x)
         x = self.relu(self.conv2(x))
         x = x.view(x.size(0), -1)
         x = self.relu(self.fc1(x))
-        x = self.relu(self.fc2(x))
-        return self.fc3(x)
+        x = self.relu(self.fc5(x))
+
+        return self.fc6(x)
 
 class Agent:
     def __init__(self, config: AgentConfig):
@@ -76,10 +77,12 @@ class Agent:
 
     def act(self, state: List[float]) -> int:
         if random.random() <= self.epsilon:
+            logger.info(f"RANDOM STEP. lam: {self.epsilon}")
             return random.randrange(self.config.action_size)
             
         state_tensor = torch.FloatTensor(state).view(1, 1, self.config.state_size, self.config.state_size)
         with torch.no_grad():
+            logger.info(f"Model")
             q_values = self.model(state_tensor)
         return int(torch.argmax(q_values).item())
 
@@ -99,6 +102,7 @@ class Agent:
                 target_q_values[0][action] = reward_tensor + self.config.gamma * torch.max(next_q_values)
 
         self.optimizer.zero_grad()
+        logger.info(f"Optimization")
         loss = self.criterion(q_values, target_q_values)
         loss.backward()
         self.optimizer.step()
@@ -131,17 +135,30 @@ def run_training_loop(agent_config: AgentConfig, net_config: NetworkConfig) -> N
         
         while True:
             try:
-                data, addr = sock.recvfrom(net_config.buffer_size) 
-                message = data.decode("utf-8").strip()
+                data, addr = sock.recvfrom(net_config.buffer_size)
+                message = data.decode("utf-8")
                 
-                current_state, reward, done = parse_game_state(message)
-                # logger.info(f"current_state: {current_state} | last_state: {last_state} | reward: {reward} | done: {done}")
+                parts = message.split(',')
+                if len(parts) < 3:
+                    sock.sendto(str(random.randrange(6)).encode("utf-8"), addr)
+                    continue
+                
+                grid_string = parts[0]
+                
+                if len(grid_string) < 8192:
+                    sock.sendto(str(random.randrange(6)).encode("utf-8"), addr)
+                    continue
 
+
+                current_state = [float(char) for char in grid_string]
+            
+                reward = float(parts[1])          
+                done = bool(int(parts[2]))      
+                
                 if last_state is not None:
                     agent.train_step(last_state, last_action, reward, current_state, done)
 
                 action = agent.act(current_state)
-                
                 sock.sendto(str(action).encode("utf-8"), addr)
                 
                 last_state = current_state
@@ -149,7 +166,7 @@ def run_training_loop(agent_config: AgentConfig, net_config: NetworkConfig) -> N
                 
                 if done:
                     last_state = None
-                    logger.info(f"Game Over. Epsilon: {agent.epsilon:.3f}")
+                    print(f"Game Over. Epsilon: {agent.epsilon:.3f}")
 
                     if agent.epsilon > agent.config.epsilon_min:
                         agent.epsilon *= agent.config.epsilon_decay

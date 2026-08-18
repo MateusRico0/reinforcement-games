@@ -153,9 +153,9 @@ void Game::update(sf::Time deltaTime) {
         sendto(m_sockfd, stateStr.c_str(), stateStr.length(), 0, 
                (const struct sockaddr *) &m_servaddr, sizeof(m_servaddr));
 
-        char buffer[4096];
+        char buffer[8192];
         socklen_t len = sizeof(m_servaddr);
-        int n = recvfrom(m_sockfd, (char *)buffer, 4096, 0, 
+        int n = recvfrom(m_sockfd, (char *)buffer, 8192, 0, 
                          (struct sockaddr *) &m_servaddr, &len);
         buffer[n] = '\0';
         
@@ -200,7 +200,7 @@ void Game::update(sf::Time deltaTime) {
     m_fireCooldown -= dt;
     if (shouldShoot && m_fireCooldown <= 0.f) {
         m_bullets.emplace_back(m_player.shape.getPosition().x - 2.f, m_player.shape.getPosition().y - 20.f);
-        m_fireCooldown = 0.2f;
+        m_fireCooldown = 0.5f;
     }
 
     m_asteroidSpawnTimer -= dt;

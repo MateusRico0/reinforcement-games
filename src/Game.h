@@ -53,6 +53,6 @@ private:
     float m_speedMultiplier;
     float m_hardAsteroidChance;
     
-    static constexpr unsigned int WINDOW_WIDTH = 800;
-    static constexpr unsigned int WINDOW_HEIGHT = 600;
+    static constexpr unsigned int WINDOW_WIDTH = 400;
+    static constexpr unsigned int WINDOW_HEIGHT = 400;
 };
